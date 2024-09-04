@@ -1,109 +1,114 @@
-const User = require('../models/User.js');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const User = require('../models/userModel');
+const ErrorResponse = require('../utils/errorResponse');
 
-exports.register = async (req, res) => {
-  const { name, email, password, role } = req.body;
+//load all users
+exports.allUsers = async (req, res, next) => {
+    //enable pagination
+    const pageSize = 10;
+    const page = Number(req.query.pageNumber) || 1;
+    const count = await User.find({}).estimatedDocumentCount();
 
-  try {
-    let user = await User.findOne({ email });
+    try {
+        const users = await User.find().sort({ createdAt: -1 }).select('-password')
+            .skip(pageSize * (page - 1))
+            .limit(pageSize)
 
-    if (user) {
-      return res.status(400).json({ msg: 'User already exists' });
+        res.status(200).json({
+            success: true,
+            users,
+            page,
+            pages: Math.ceil(count / pageSize),
+            count
+
+        })
+        next();
+    } catch (error) {
+        return next(error);
     }
+}
 
-    user = new User({
-      name,
-      email,
-      password,
-      role
-    });
+//show single user
+exports.singleUser = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.params.id);
+        res.status(200).json({
+            success: true,
+            user
+        })
+        next();
 
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
-
-    await user.save();
-
-    const payload = {
-      user: {
-        id: user.id,
-        role: user.role
-      }
-    };
-
-    jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
-      if (err) throw err;
-      res.json({ token });
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-};
-
-exports.login = async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    let user = await User.findOne({ email });
-
-    if (!user) {
-      return res.status(400).json({ msg: 'Invalid credentials' });
+    } catch (error) {
+        return next(error);
     }
+}
 
-    const isMatch = await bcrypt.compare(password, user.password);
 
-    if (!isMatch) {
-      return res.status(400).json({ msg: 'Invalid credentials' });
+//edit user
+exports.editUser = async (req, res, next) => {
+    try {
+        const user = await User.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.status(200).json({
+            success: true,
+            user
+        })
+        next();
+
+    } catch (error) {
+        return next(error);
     }
+}
 
-    const payload = {
-      user: {
-        id: user.id,
-        role: user.role
-      }
-    };
+//delete user
+exports.deleteUser = async (req, res, next) => {
+    try {
+        const user = await User.findByIdAndRemove(req.params.id);
+        res.status(200).json({
+            success: true,
+            message: "user deleted"
+        })
+        next();
 
-    jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' }, (err, token) => {
-      if (err) throw err;
-      res.json({ token });
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-};
+    } catch (error) {
+        return next(error);
+    }
+}
 
-exports.getUserProfile = async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.json(user);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-};
 
-exports.updateUserProfile = async (req, res) => {
-  const { name, email, password } = req.body;
+//jobs history
+exports.createUserJobsHistory = async (req, res, next) => {
+    const { title, description, salary, location } = req.body;
 
-  const userFields = { name, email };
+    try {
+        const currentUser = await User.findOne({ _id: req.user._id });
+        if (!currentUser) {
+            return next(new ErrorResponse("You must log In", 401));
+        } else {
+            const addJobHistory = {
+                title,
+                description,
+                salary,
+                location,
+                user: req.user._id
+            }
+            currentUser.jobsHistory.push(addJobHistory);
+            await currentUser.save();
+        }
 
-  if (password) {
-    const salt = await bcrypt.genSalt(10);
-    userFields.password = await bcrypt.hash(password, salt);
-  }
+        res.status(200).json({
+            success: true,
+            currentUser
+        })
+        next();
 
-  try {
-    let user = await User.findById(req.user.id);
+    } catch (error) {
+        return next(error);
+    }
+}
 
-    if (!user) return res.status(404).json({ msg: 'User not found' });
 
-    user = await User.findByIdAndUpdate(req.user.id, { $set: userFields }, { new: true });
 
-    res.json(user);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server error');
-  }
-};
+
+
+
+
+
